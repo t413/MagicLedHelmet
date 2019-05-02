@@ -187,7 +187,7 @@ void loop() {
 
   if ((now - wheelDat.time) < 4000) { //valid data!
     fadeToBlackBy(leds, NUM_LEDS, 40);
-    uint8_t bright = fadeit(wheelDat.speedfilt, 60, 160);
+    uint8_t bright = fadeit(wheelDat.speedfilt, 100, 800); //1-8kph
     if (bright < 253) { //when going slow do this pattern
       juggle(quadwave8(now >> 6) / 6 + 165, 255 - bright); //color specific
     }
@@ -214,7 +214,7 @@ void loop() {
 
       if (wheelDat.dspeedfilt < -BREAKING_MIN) {
         for (int i = 0; i < BREAKING_LEDS; i++) {
-          auto clr = CHSV(0, 255, map(wheelDat.dspeedfilt, -BREAKING_MIN, -BREAKING_MAX, 0, bright)); //hue 0 == red
+          CHSV clr(0, 255, map(wheelDat.dspeedfilt, -BREAKING_MIN, -BREAKING_MAX, 0, 255)); //hue 0=red
           leds[i]                |= clr;
           leds[NUM_LEDS - 1 - i] |= clr;
         }

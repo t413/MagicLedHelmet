@@ -133,18 +133,23 @@ void setup() {
 
 #define MAX_VOXEL (NUM_LEDS/2)
 
-struct Voxel {
+int mapc(int v, int a, int b, int c, int d) { return constrain(map(v, a, b, c, d), c, d); }
+
+class Voxel {
   uint32_t starttime;
-  uint8_t speed;
-  Voxel(uint8_t s=0, uint32_t t=0) : starttime(t), speed(s) { }
-  //String toString() const { return str("s%dp%d", speed,pos); }
+  uint16_t speed;
+public:
+  Voxel(uint16_t s=0, uint32_t t=0) : starttime(t), speed(s) { }
+  String toString(uint32_t now) const { return str("<v s%d,%dmsa> ", speed, now - starttime); }
   bool valid(uint32_t now) const { return speed > 0 && getLedPos(now) < MAX_VOXEL; }
-  uint8_t getLedPos(uint32_t now) const { 
-    return (now - starttime) * speed * 423 / 100; // = 1/(10/60/60 * 23leds/27cm)
+  uint8_t reset() { speed = 0; }
+  uint8_t getLedPos(uint32_t now) const {
+    uint16_t beat = ((now - starttime) * (speed << 11)) >> 16;
+    return map(beat, 0, SHRT_MAX, 0, MAX_VOXEL); // = 1/(10/60/60 * 23leds/27cm)
   }
     // map(pos, 0, MAX_POS, 0, NUM_LEDS/2);
 };
-#define VOXELS_NUM 10
+#define VOXELS_NUM 5
 Voxel voxels[VOXELS_NUM] = {};
 void enqueVox(int speed, uint32_t now) {
   for (int i = 0; i < VOXELS_NUM; i++)
@@ -153,29 +158,23 @@ void enqueVox(int speed, uint32_t now) {
       return;
     }
 }
-uint8_t minVox(uint32_t now) {
-  uint8_t minv = 255;
-  for (int i = 0; i < VOXELS_NUM; i++)
-    if (voxels[i].valid(now)) minv = min(minv, voxels[i].getLedPos(now));
-  return minv;
-}
 uint8_t newVoxThresh = 3;
 
 //true=right-side
 CRGB& side(bool side, int16_t pos) {
-  if (side) return leds[constrain(NUM_LEDS/2     + pos, NUM_LEDS/2, NUM_LEDS)];
-  else      return leds[constrain(NUM_LEDS/2 - 1 - pos, 0, NUM_LEDS/2)];
+  if (side) return leds[constrain(MAX_VOXEL     + pos, MAX_VOXEL, NUM_LEDS)];
+  else      return leds[constrain(MAX_VOXEL - 1 - pos,         0, MAX_VOXEL)];
 }
 
 uint16_t fps = 0;
 void loop() {
   uint32_t now = millis();
   fps++;
-  EVERY_N_MILLISECONDS(350) { newVoxThresh = map(wheelDat.speedfilt, 0, 3000, 8, 40); }
+  EVERY_N_MILLISECONDS(350) { newVoxThresh = mapc(wheelDat.speedfilt, 0, 2500, 4, VOXELS_NUM - 1); }
   EVERY_N_MILLISECONDS(1000) { Serial.printf("  (%d fps)\n", fps); fps = 0; }
 
   while (Serial.available()) {
-    int v = Serial.parseInt();
+    int v = Serial.parseInt() * 100;
     while (Serial.available() > 0)
        Serial.read();
     Serial.printf("read in %d\n", v);
@@ -195,18 +194,24 @@ void loop() {
       if (minv > newVoxThresh) //add new voxel
         enqueVox(wheelDat.speedfilt, now);
 
+      fadeToBlackBy(leds, NUM_LEDS, mapc(wheelDat.speedfilt, 0, 3000, 0, 60));
+      uint8_t minvoxp = 255;
       for (int i = 0; i < VOXELS_NUM; i++) {
-        if (! voxels[i].valid(now)) continue;
+        if (! voxels[i].valid(now)) { voxels[i].reset(); continue; }
         uint8_t pos = voxels[i].getLedPos(now);
+        uint8_t spread = mapc(wheelDat.speedfilt, 0, 3000, 1, 4);
         CHSV c1(quadwave8((now >> 5) + 88) / 6 + 160, 220, 255);
         CHSV c2(quadwave8( now >> 5      ) / 6 + 160, 220, 255);
-        //TODO when speed > 30000 (18mph) GO RED
-        uint8_t spread = constrain(map(voxels[i].speed, 0, 3000, 1, 8), 1,8);
-        for (uint8_t i = 0; i < spread; i++) {
-          side(true,  pos - spread) |= c1; //right side
-          side(false, pos - spread) |= c2; //left side
+        //TODO when speed > 3000 (18mph) GO RED
+        for (uint8_t s = 0; s < spread; s++) {
+          c1.v = c2.v = 255 - s*16;
+          side(1, pos - s) |= c1; //right side
+          side(0, pos - s) |= c2; //left side
         }
+        minvoxp = min(minvoxp, pos);
       }
+      if (minvoxp > newVoxThresh) //add new voxel
+        enqueVox(wheelDat.speedfilt, now);
 
       if (wheelDat.dspeedfilt < -BREAKING_MIN) {
         for (int i = 0; i < BREAKING_LEDS; i++) {

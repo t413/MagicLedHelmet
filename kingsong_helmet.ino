@@ -15,6 +15,7 @@ static BLEUUID    charUUID("ffe1");
 #define BREAKING_MIN 8
 #define BREAKING_MAX 20
 #define BREAKING_LEDS 8
+#define QUICKSPEED 3000 //30kph 18mph
 
 static BLEClient* myDevice = NULL;
 static BLERemoteCharacteristic* pRemChar = NULL;
@@ -144,12 +145,12 @@ public:
   bool valid(uint32_t now) const { return speed > 0 && getLedPos(now) < MAX_VOXEL; }
   uint8_t reset() { speed = 0; }
   uint8_t getLedPos(uint32_t now) const {
-    uint16_t beat = ((now - starttime) * (speed << 11)) >> 16;
+    uint16_t beat = ((now - starttime) * (speed << 12)) >> 16;
     return map(beat, 0, SHRT_MAX, 0, MAX_VOXEL); // = 1/(10/60/60 * 23leds/27cm)
   }
     // map(pos, 0, MAX_POS, 0, NUM_LEDS/2);
 };
-#define VOXELS_NUM 5
+#define VOXELS_NUM 6
 Voxel voxels[VOXELS_NUM] = {};
 void enqueVox(int speed, uint32_t now) {
   for (int i = 0; i < VOXELS_NUM; i++)
@@ -158,7 +159,6 @@ void enqueVox(int speed, uint32_t now) {
       return;
     }
 }
-uint8_t newVoxThresh = 3;
 
 //true=right-side
 CRGB& side(bool side, int16_t pos) {
@@ -166,12 +166,14 @@ CRGB& side(bool side, int16_t pos) {
   else      return leds[constrain(MAX_VOXEL - 1 - pos,         0, MAX_VOXEL)];
 }
 
+uint16_t newVoxThresh = 3;
 uint16_t fps = 0;
+
 void loop() {
   uint32_t now = millis();
   fps++;
-  EVERY_N_MILLISECONDS(350) { newVoxThresh = mapc(wheelDat.speedfilt, 0, 2500, 4, VOXELS_NUM - 1); }
-  EVERY_N_MILLISECONDS(1000) { Serial.printf("  (%d fps)\n", fps); fps = 0; }
+  EVERY_N_MILLISECONDS(350) { newVoxThresh = mapc(wheelDat.speedfilt, 0, QUICKSPEED, 4, 2*MAX_VOXEL/3); }
+  EVERY_N_MILLISECONDS(1000) { Serial.printf("  (%d fps, thresh %d)\n", fps, newVoxThresh); fps = 0; }
 
   while (Serial.available()) {
     int v = Serial.parseInt() * 100;
@@ -190,16 +192,13 @@ void loop() {
       juggle(quadwave8(now >> 6) / 6 + 165, 255 - bright); //color specific
     }
     if (bright > 0) {
-      uint8_t minv = minVox(now);
-      if (minv > newVoxThresh) //add new voxel
-        enqueVox(wheelDat.speedfilt, now);
 
-      fadeToBlackBy(leds, NUM_LEDS, mapc(wheelDat.speedfilt, 0, 3000, 0, 60));
+      fadeToBlackBy(leds, NUM_LEDS, mapc(wheelDat.speedfilt, 0, QUICKSPEED, 0, 80));
       uint8_t minvoxp = 255;
       for (int i = 0; i < VOXELS_NUM; i++) {
         if (! voxels[i].valid(now)) { voxels[i].reset(); continue; }
         uint8_t pos = voxels[i].getLedPos(now);
-        uint8_t spread = mapc(wheelDat.speedfilt, 0, 3000, 1, 4);
+        uint8_t spread = mapc(wheelDat.speedfilt, 0, QUICKSPEED, 1, 3);
         CHSV c1(quadwave8((now >> 5) + 88) / 6 + 160, 220, 255);
         CHSV c2(quadwave8( now >> 5      ) / 6 + 160, 220, 255);
         //TODO when speed > 3000 (18mph) GO RED

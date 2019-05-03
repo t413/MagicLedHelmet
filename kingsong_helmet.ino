@@ -1,6 +1,7 @@
 
 #define USE_BLE
 #include <FastLED.h>
+#include <painlessMesh.h>
 
 #define DATA_PIN    13
 #define NUM_LEDS    56
@@ -8,6 +9,7 @@
 #define FRAMES_PER_SECOND  256
 FASTLED_USING_NAMESPACE
 CRGB leds[NUM_LEDS];
+painlessMesh  mesh;
 
 #ifdef USE_BLE
 #include <BLEDevice.h>
@@ -48,6 +50,7 @@ struct WheelData {
 };
 
 WheelData wheelDat = {0};
+int32_t timeOffset = 0;
 
 int byteArrayInt2(byte low, byte high) {
   return (low & 255) + ((high & 255) * 256);
@@ -137,6 +140,21 @@ void setup() {
   myDevice = BLEDevice::createClient();
   xTaskCreate(connectTask, "connectTask", 10000, NULL, 1, NULL); //fn, name, stack size, parameter, priority, handle
 #endif
+  mesh.setDebugMsgTypes(ERROR | STARTUP);
+  mesh.init("helmetleds", "weallloveleds", 1337);
+  mesh.onReceive([](uint32_t from, const String &msg) {
+    Serial.printf("SYSTEM: Received from %u msg=%s\n", from, msg.c_str());
+  });
+  mesh.onNewConnection([](uint32_t nodeId) {
+    Serial.printf("SYSTEM: New Connection, nodeId = %u\n", nodeId);
+  });
+  mesh.onChangedConnections([](){
+    Serial.printf("SYSTEM: Changed connections %s\n",mesh.subConnectionJson().c_str());
+  });
+  mesh.onNodeTimeAdjusted([](int32_t offset) {
+    Serial.printf("SYSTEM: Adjusted time %u. Offset = %d\n", mesh.getNodeTime(),offset);
+    timeOffset += offset;
+  });
 }
 
 #define MAX_VOXEL (NUM_LEDS/2)
@@ -177,7 +195,8 @@ uint16_t newVoxThresh = 3;
 uint16_t fps = 0;
 
 void loop() {
-  uint32_t now = millis();
+  mesh.update();
+  uint32_t now = millis() + timeOffset;
   fps++;
   EVERY_N_MILLISECONDS(350) { newVoxThresh = mapc(wheelDat.speedfilt, 0, QUICKSPEED, 4, 2*MAX_VOXEL/3); }
   EVERY_N_MILLISECONDS(1000) { Serial.printf("  (%d fps, thresh %d)\n", fps, newVoxThresh); fps = 0; }

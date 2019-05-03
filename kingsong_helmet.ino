@@ -1,24 +1,27 @@
-#include "BLEDevice.h"
+
+#define USE_BLE
 #include <FastLED.h>
 
 #define DATA_PIN    13
 #define NUM_LEDS    56
-FASTLED_USING_NAMESPACE
-CRGB leds[NUM_LEDS];
 #define BRIGHTNESS         30
 #define FRAMES_PER_SECOND  256
+FASTLED_USING_NAMESPACE
+CRGB leds[NUM_LEDS];
 
+#ifdef USE_BLE
+#include <BLEDevice.h>
 static BLEAddress   myaddr("08:08:08:08:08:01");
 static BLEUUID serviceUUID("0000ffe0-0000-1000-8000-00805f9b34fb"); //use fff0 to find it, this to connect
 static BLEUUID    charUUID("ffe1");
+static BLEClient* myDevice = NULL;
+static BLERemoteCharacteristic* pRemChar = NULL;
+#endif
 
 #define BREAKING_MIN 8
 #define BREAKING_MAX 20
 #define BREAKING_LEDS 8
 #define QUICKSPEED 3000 //30kph 18mph
-
-static BLEClient* myDevice = NULL;
-static BLERemoteCharacteristic* pRemChar = NULL;
 
 String str(const char *fmtStr, ...) {
   static char buf[200] = {'\0'};
@@ -54,6 +57,7 @@ long byteArrayInt4(byte value1, byte value2, byte value3, byte value4) {
   return (((((long) ((value1 & 255) << 16))) | ((long) ((value2 & 255) << 24))) | ((long) (value3 & 255))) | ((long) ((value4 & 255) << 8));
 }
 
+#ifdef USE_BLE
 static void notifyCallback(BLERemoteCharacteristic* pBLERemoteCharacteristic,uint8_t* pData,size_t length,bool isNotify) {
   uint32_t now = millis();
   if (length >= 20) {
@@ -120,21 +124,24 @@ void connectTask(void* params) {
     vTaskDelay(5000);
   }
 }
+#endif
 
 void setup() {
   Serial.begin(115200);
   FastLED.addLeds<WS2811,DATA_PIN,GRB>(leds, NUM_LEDS).setCorrection(TypicalLEDStrip);
   FastLED.setBrightness(BRIGHTNESS);
 
+#ifdef USE_BLE
   Serial.println("Starting Arduino BLE Client application...");
   BLEDevice::init("");
   myDevice = BLEDevice::createClient();
   xTaskCreate(connectTask, "connectTask", 10000, NULL, 1, NULL); //fn, name, stack size, parameter, priority, handle
+#endif
 }
 
 #define MAX_VOXEL (NUM_LEDS/2)
 
-int mapc(int v, int a, int b, int c, int d) { return constrain(map(v, a, b, c, d), c, d); }
+int mapc(int v, int a, int b, int c, int d) { return constrain(::map(v, a, b, c, d), c, d); }
 
 class Voxel {
   uint32_t starttime;
@@ -146,7 +153,7 @@ public:
   uint8_t reset() { speed = 0; }
   uint8_t getLedPos(uint32_t now) const {
     uint16_t beat = ((now - starttime) * (speed << 12)) >> 16;
-    return map(beat, 0, SHRT_MAX, 0, MAX_VOXEL); // = 1/(10/60/60 * 23leds/27cm)
+    return ::map(beat, 0, SHRT_MAX, 0, MAX_VOXEL); // = 1/(10/60/60 * 23leds/27cm)
   }
     // map(pos, 0, MAX_POS, 0, NUM_LEDS/2);
 };
@@ -214,7 +221,7 @@ void loop() {
 
       if (wheelDat.dspeedfilt < -BREAKING_MIN) {
         for (int i = 0; i < BREAKING_LEDS; i++) {
-          CHSV clr(0, 255, map(wheelDat.dspeedfilt, -BREAKING_MIN, -BREAKING_MAX, 0, 255)); //hue 0=red
+          CHSV clr(0, 255, ::map(wheelDat.dspeedfilt, -BREAKING_MIN, -BREAKING_MAX, 0, 255)); //hue 0=red
           leds[i]                |= clr;
           leds[NUM_LEDS - 1 - i] |= clr;
         }
@@ -254,5 +261,5 @@ void confetti(uint8_t hue, uint8_t brightness) {
 }
 
 uint8_t fadeit(int16_t in, int16_t minv, int16_t maxv) { //returns map between 0-255
-  return map(constrain(in, minv, maxv), minv, maxv, 0, 255);
+  return ::map(constrain(in, minv, maxv), minv, maxv, 0, 255);
 }

@@ -1,23 +1,24 @@
-
-#define USE_BLE
+#define USE_GET_MILLISECOND_TIMER
 #include <FastLED.h>
 #include <painlessMesh.h>
 
-#define DATA_PIN    13
-#define NUM_LEDS    56
 #define BRIGHTNESS         30
+#define NUM_LEDS    56 //32 on skate
 #define FRAMES_PER_SECOND  256
 FASTLED_USING_NAMESPACE
 CRGB leds[NUM_LEDS];
 painlessMesh  mesh;
 
-#ifdef USE_BLE
+#ifdef ARDUINO_ARCH_ESP32
+#define DATA_PIN    13 //13 for lolin32
 #include <BLEDevice.h>
 static BLEAddress   myaddr("08:08:08:08:08:01");
 static BLEUUID serviceUUID("0000ffe0-0000-1000-8000-00805f9b34fb"); //use fff0 to find it, this to connect
 static BLEUUID    charUUID("ffe1");
 static BLEClient* myDevice = NULL;
 static BLERemoteCharacteristic* pRemChar = NULL;
+#else
+#define DATA_PIN    2 //gpio2=D4 for D1 mini
 #endif
 
 #define BREAKING_MIN 8
@@ -52,6 +53,8 @@ struct WheelData {
 WheelData wheelDat = {0};
 int32_t timeOffset = 0;
 
+uint32_t get_millisecond_timer() { return millis() + timeOffset; }
+
 int byteArrayInt2(byte low, byte high) {
   return (low & 255) + ((high & 255) * 256);
 }
@@ -60,9 +63,9 @@ long byteArrayInt4(byte value1, byte value2, byte value3, byte value4) {
   return (((((long) ((value1 & 255) << 16))) | ((long) ((value2 & 255) << 24))) | ((long) (value3 & 255))) | ((long) ((value4 & 255) << 8));
 }
 
-#ifdef USE_BLE
+#ifdef ARDUINO_ARCH_ESP32
 static void notifyCallback(BLERemoteCharacteristic* pBLERemoteCharacteristic,uint8_t* pData,size_t length,bool isNotify) {
-  uint32_t now = millis();
+  uint32_t now = get_millisecond_timer();
   if (length >= 20) {
     if (pData[0] != 170 || (pData[1] != 85)) return; //check header
     if (pData[16] == 169) { //regular data
@@ -134,7 +137,7 @@ void setup() {
   FastLED.addLeds<WS2811,DATA_PIN,GRB>(leds, NUM_LEDS).setCorrection(TypicalLEDStrip);
   FastLED.setBrightness(BRIGHTNESS);
 
-#ifdef USE_BLE
+#ifdef ARDUINO_ARCH_ESP32
   Serial.println("Starting Arduino BLE Client application...");
   BLEDevice::init("");
   myDevice = BLEDevice::createClient();
@@ -153,7 +156,7 @@ void setup() {
   });
   mesh.onNodeTimeAdjusted([](int32_t offset) {
     Serial.printf("SYSTEM: Adjusted time %u. Offset = %d\n", mesh.getNodeTime(),offset);
-    timeOffset += offset;
+    timeOffset += offset / 1000;
   });
 }
 
@@ -196,7 +199,7 @@ uint16_t fps = 0;
 
 void loop() {
   mesh.update();
-  uint32_t now = millis() + timeOffset;
+  uint32_t now = get_millisecond_timer();
   fps++;
   EVERY_N_MILLISECONDS(350) { newVoxThresh = mapc(wheelDat.speedfilt, 0, QUICKSPEED, 4, 2*MAX_VOXEL/3); }
   EVERY_N_MILLISECONDS(1000) { Serial.printf("  (%d fps, thresh %d)\n", fps, newVoxThresh); fps = 0; }
